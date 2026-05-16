@@ -123,29 +123,29 @@ Watch the **Release workflow** run → it creates a GitHub Release with changelo
 npm install
 npm test         # run all 16 tests
 npm run lint     # check code style
-npm start        # start server on port 3000
+npm start        # start server on port 3003
 ```
 
 Test the API manually:
 ```bash
 # Health check
-curl http://localhost:3000/health
+curl http://localhost:3003/health
 
 # Create a todo
-curl -X POST http://localhost:3000/todos \
+curl -X POST http://localhost:3003/todos \
   -H "Content-Type: application/json" \
   -d '{"title":"Learn GitHub Actions"}'
 
 # Get all todos
-curl http://localhost:3000/todos
+curl http://localhost:3003/todos
 
 # Mark as done (replace 1 with your todo's id)
-curl -X PATCH http://localhost:3000/todos/1 \
+curl -X PATCH http://localhost:3003/todos/1 \
   -H "Content-Type: application/json" \
   -d '{"completed":true}'
 
 # Delete a todo
-curl -X DELETE http://localhost:3000/todos/1
+curl -X DELETE http://localhost:3003/todos/1
 ```
 
 ---
