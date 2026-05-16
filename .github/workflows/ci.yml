@@ -153,19 +153,19 @@ jobs:
         run: |
           node src/server.js &
           echo "SERVER_PID=$!" >> $GITHUB_ENV
-          sleep 2                         # give the server 2 seconds to boot
+          sleep 5                         # give the server 5 seconds to boot
 
       - name: Hit the health endpoint
         run: |
           echo "🩺 Testing /health..."
-          curl -f http://localhost:3000/health
+          curl -f http://localhost:3003/health
           echo ""
           echo "✅ Server is alive!"
 
       - name: Test creating a todo via HTTP
         run: |
           echo "📝 Creating a todo..."
-          RESULT=$(curl -s -X POST http://localhost:3000/todos \
+          RESULT=$(curl -s -X POST http://localhost:3003/todos \
             -H "Content-Type: application/json" \
             -d '{"title":"Smoke test todo"}')
           echo "Response: $RESULT"
