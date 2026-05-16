@@ -16,8 +16,9 @@
  
 name: Deploy to Render
 
- on:
-  workflow_dispatch:    # manual only — won't run on push until Render is ready
+on:
+  push:
+    branches: [main]
  
 jobs:
  
