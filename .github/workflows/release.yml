@@ -1,0 +1,149 @@
+# ================================================================
+#  WORKFLOW 5: Auto Release on Version Tag
+#
+#  How to trigger:
+#    git tag v1.0.0
+#    git push origin v1.0.0
+#
+#  What it does:
+#    - Runs full tests one more time
+#    - Creates a GitHub Release with auto-generated changelog
+#    - Attaches a zipped build artifact to the release
+#    - 100% free — uses GitHub Releases (unlimited)
+# ================================================================
+ 
+name: Release
+ 
+on:
+  push:
+    tags:
+      - "v*.*.*"      # triggers on tags like v1.0.0, v2.3.1, v0.1.0-beta
+ 
+permissions:
+  contents: write    # needed to create releases
+ 
+jobs:
+ 
+  # ──────────────────────────────────────────────────────────────
+  # JOB 1: Run tests before releasing
+  # ──────────────────────────────────────────────────────────────
+  verify:
+    name: ✅ Verify Before Release
+    runs-on: ubuntu-latest
+ 
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+ 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+ 
+      - name: Install dependencies
+        run: npm ci
+ 
+      - name: Run all tests
+        run: npm test
+ 
+      - name: Run lint
+        run: npm run lint
+ 
+ 
+  # ──────────────────────────────────────────────────────────────
+  # JOB 2: Build and zip the release package
+  # ──────────────────────────────────────────────────────────────
+  package:
+    name: 📦 Package
+    runs-on: ubuntu-latest
+    needs: verify
+ 
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+ 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+ 
+      - name: Install production deps
+        run: npm ci --omit=dev
+ 
+      - name: Create release zip
+        run: |
+          VERSION=${{ github.ref_name }}
+          mkdir -p release-package
+          cp -r src/ release-package/
+          cp package.json release-package/
+          cp package-lock.json release-package/
+          cp README.md release-package/
+          cp -r node_modules/ release-package/
+          zip -r "todo-api-${VERSION}.zip" release-package/
+          echo "ZIP_NAME=todo-api-${VERSION}.zip" >> $GITHUB_ENV
+ 
+      - name: Upload release zip as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-zip
+          path: "*.zip"
+          retention-days: 90
+ 
+ 
+  # ──────────────────────────────────────────────────────────────
+  # JOB 3: Create the GitHub Release
+  # ──────────────────────────────────────────────────────────────
+  release:
+    name: 🎉 Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: package
+ 
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0               # needed for full git history / changelog
+ 
+      - name: Download release zip
+        uses: actions/download-artifact@v4
+        with:
+          name: release-zip
+ 
+      - name: Generate changelog from git log
+        id: changelog
+        run: |
+          VERSION=${{ github.ref_name }}
+ 
+          # Get the previous tag
+          PREV_TAG=$(git tag --sort=-creatordate | grep -v "$VERSION" | head -1)
+ 
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous tag — showing all commits"
+            COMMITS=$(git log --pretty=format:"- %s (%an)" | head -20)
+          else
+            echo "Comparing $PREV_TAG → $VERSION"
+            COMMITS=$(git log "$PREV_TAG".."$VERSION" --pretty=format:"- %s (%an)")
+          fi
+ 
+          # Write changelog to file (handles multi-line in env)
+          echo "## What's changed" > changelog.md
+          echo "" >> changelog.md
+          echo "$COMMITS" >> changelog.md
+          echo "" >> changelog.md
+          echo "---" >> changelog.md
+          echo "Full diff: [$PREV_TAG → $VERSION](../../compare/$PREV_TAG...$VERSION)" >> changelog.md
+ 
+          cat changelog.md
+ 
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Release ${{ github.ref_name }}"
+          body_path: changelog.md
+          files: "*.zip"
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
+ 

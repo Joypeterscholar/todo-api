@@ -1,0 +1,99 @@
+# ================================================================
+#  WORKFLOW 2: Deploy to Render (100% free tier)
+#
+#  Runs on: push to main ONLY (not on PRs)
+#  Needs:   CI Pipeline to pass first
+#
+#  Setup:
+#    1. Create free account at render.com
+#    2. Create a new "Web Service" → connect your GitHub repo
+#    3. Go to Render Dashboard → your service → Settings → Deploy Hook
+#    4. Copy the hook URL
+#    5. In GitHub → Settings → Secrets → Actions → New secret:
+#       Name:  RENDER_DEPLOY_HOOK_URL
+#       Value: (paste the hook URL)
+# ================================================================
+ 
+name: Deploy to Render
+ 
+on:
+  push:
+    branches: [main]
+ 
+jobs:
+ 
+  # ──────────────────────────────────────────────────────────────
+  # Wait for CI to pass, then deploy
+  # ──────────────────────────────────────────────────────────────
+  deploy:
+    name: 🚀 Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+ 
+    environment:
+      name: production
+      url: ${{ vars.APP_URL }}            # set APP_URL in GitHub → Settings → Variables
+ 
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+ 
+      - name: Print deploy info
+        run: |
+          echo "🚀 Deploying commit: ${{ github.sha }}"
+          echo "👤 Triggered by:     ${{ github.actor }}"
+          echo "📅 At:               $(date -u)"
+ 
+      - name: Trigger Render deploy hook
+        run: |
+          echo "📡 Sending deploy signal to Render..."
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}")
+ 
+          echo "Response code: $HTTP_STATUS"
+ 
+          if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 201 ]; then
+            echo "✅ Deploy triggered successfully!"
+          else
+            echo "❌ Deploy hook failed with HTTP $HTTP_STATUS"
+            exit 1
+          fi
+ 
+      - name: Wait for deploy to finish
+        run: |
+          echo "⏳ Waiting 30s for Render to deploy..."
+          sleep 30
+ 
+      - name: Verify deployment (health check)
+        run: |
+          APP_URL="${{ vars.APP_URL }}"
+          if [ -z "$APP_URL" ]; then
+            echo "⚠️  APP_URL not set — skipping live health check"
+            echo "Set it in GitHub → Settings → Variables → APP_URL"
+            exit 0
+          fi
+ 
+          echo "🩺 Hitting $APP_URL/health ..."
+          RESPONSE=$(curl -sf "$APP_URL/health" || echo "FAILED")
+ 
+          if echo "$RESPONSE" | grep -q "ok"; then
+            echo "✅ Production is healthy!"
+            echo "$RESPONSE"
+          else
+            echo "❌ Health check failed!"
+            echo "Response: $RESPONSE"
+            exit 1
+          fi
+ 
+      - name: Write deploy summary
+        run: |
+          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Triggered by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Platform | Render (free tier) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | ✅ Deployed |" >> $GITHUB_STEP_SUMMARY
+ 

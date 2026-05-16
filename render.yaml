@@ -1,0 +1,17 @@
+# Render.com configuration (free tier)
+# This file tells Render how to build and run your app
+ 
+services:
+  - type: web
+    name: todo-api
+    runtime: node
+    plan: free                    # Free plan — 750 hrs/month
+    buildCommand: npm ci --omit=dev
+    startCommand: node src/server.js
+    healthCheckPath: /health      # Render pings this to check app is alive
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+ 

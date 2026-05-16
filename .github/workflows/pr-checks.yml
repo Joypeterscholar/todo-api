@@ -1,0 +1,159 @@
+# ================================================================
+#  WORKFLOW 3: Pull Request Quality Gate
+#
+#  Runs on: every pull request opened, updated, or reopened
+#
+#  Does:
+#    - Auto-labels PRs by branch name
+#    - Checks PR title follows Conventional Commits format
+#    - Posts a helpful comment on the PR
+#    - Adds a checklist comment for the reviewer
+# ================================================================
+ 
+name: PR Quality Gate
+ 
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+ 
+permissions:
+  pull-requests: write
+  contents: read
+ 
+jobs:
+ 
+  # ──────────────────────────────────────────────────────────────
+  # JOB 1: Label the PR
+  # ──────────────────────────────────────────────────────────────
+  label:
+    name: 🏷️ Auto Label
+    runs-on: ubuntu-latest
+ 
+    steps:
+      - name: Label by branch name
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = context.payload.pull_request.head.ref;
+            const labelsToAdd = [];
+ 
+            const rules = [
+              { prefix: "feature/",  label: "feature" },
+              { prefix: "feat/",     label: "feature" },
+              { prefix: "fix/",      label: "bug" },
+              { prefix: "bugfix/",   label: "bug" },
+              { prefix: "hotfix/",   label: "hotfix" },
+              { prefix: "docs/",     label: "documentation" },
+              { prefix: "chore/",    label: "chore" },
+              { prefix: "refactor/", label: "refactor" },
+              { prefix: "test/",     label: "tests" },
+              { prefix: "ci/",       label: "ci/cd" },
+            ];
+ 
+            for (const rule of rules) {
+              if (branch.startsWith(rule.prefix)) {
+                labelsToAdd.push(rule.label);
+              }
+            }
+ 
+            // Label by file changes
+            const files = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+ 
+            const paths = files.data.map(f => f.filename);
+            if (paths.some(p => p.startsWith(".github/"))) labelsToAdd.push("ci/cd");
+            if (paths.some(p => p.endsWith(".md")))         labelsToAdd.push("documentation");
+            if (paths.some(p => p.includes("test")))        labelsToAdd.push("tests");
+ 
+            const unique = [...new Set(labelsToAdd)];
+ 
+            if (unique.length > 0) {
+              try {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.payload.pull_request.number,
+                  labels: unique,
+                });
+                console.log("Labels added: " + unique.join(", "));
+              } catch (e) {
+                console.log("Could not add labels (they may not exist yet): " + e.message);
+              }
+            }
+ 
+ 
+  # ──────────────────────────────────────────────────────────────
+  # JOB 2: Check PR title format
+  # ──────────────────────────────────────────────────────────────
+  title-check:
+    name: 📋 Check PR Title
+    runs-on: ubuntu-latest
+ 
+    steps:
+      - name: Validate Conventional Commits format
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = context.payload.pull_request.title;
+            const pattern = /^(feat|fix|docs|chore|refactor|test|ci|perf|style|revert)(\(.+\))?: .{3,}/;
+ 
+            if (!pattern.test(title)) {
+              core.setFailed(
+                `PR title "${title}" doesn't follow Conventional Commits.\n\n` +
+                `Expected format: type(scope): description\n\n` +
+                `Valid types: feat, fix, docs, chore, refactor, test, ci, perf, style, revert\n\n` +
+                `Examples:\n` +
+                `  feat: add user authentication\n` +
+                `  fix(api): return 404 for missing todos\n` +
+                `  docs: update README setup steps`
+              );
+            } else {
+              console.log("✅ PR title format is valid: " + title);
+            }
+ 
+ 
+  # ──────────────────────────────────────────────────────────────
+  # JOB 3: Post helpful PR comment
+  # ──────────────────────────────────────────────────────────────
+  comment:
+    name: 💬 PR Comment
+    runs-on: ubuntu-latest
+    if: github.event.action == 'opened'   # only on first open, not every update
+ 
+    steps:
+      - name: Post welcome comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+ 
+            const body = `## 👋 Thanks for your PR, @${pr.user.login}!
+ 
+            The CI pipeline will automatically:
+            - 🔍 Lint your code
+            - 🧪 Run all tests on Node 18, 20 & 22
+            - 🏗️ Verify the build
+            - 💨 Smoke-test the running server
+ 
+            ### Reviewer checklist
+            - [ ] Code is readable and well-commented
+            - [ ] Tests cover the new behaviour
+            - [ ] No secrets or API keys committed
+            - [ ] README updated if needed
+ 
+            _This comment was posted automatically by GitHub Actions._`;
+ 
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body,
+            });
+ 
